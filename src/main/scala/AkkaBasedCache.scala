@@ -28,6 +28,7 @@ class AkkaBasedCache[InetAddress: ClassTag](maxAge: Long, timeUnit: TimeUnit)(im
   override def peek: InetAddress = Await.result((actor ? Peek).mapTo[Option[InetAddress]], timeout).getOrElse(nulll)
   override def take(): InetAddress = Await.result((actor ? Take).mapTo[Option[InetAddress]], timeout).getOrElse(nulll)
   override def remove(addr: InetAddress): Boolean = Await.result((actor ? Remove(addr)).mapTo[Boolean], timeout)
+  //"ask pattern" affects performance: http://stackoverflow.com/questions/20875837/why-isnt-ask-defined-directly-on-actorref-for-akka
 
 }
 
@@ -55,11 +56,11 @@ class Underlying[InetAddress](timeout: FiniteDuration, model: Model[InetAddress]
 
   case class State(set: Set[InetAddress] = Set.empty[InetAddress], list: List[InetAddress] = Nil)
 
-  def receive = process(State())
+  def receive = process(State()) //initial state
 
   def process(s: State): Receive = {
     case Add(a) if !s.set.contains(a) =>
-      system.scheduler.scheduleOnce(timeout, self, Remove(a))
+      system.scheduler.scheduleOnce(timeout, self, Remove(a)) //it's not much precise - http://stackoverflow.com/questions/25845950/can-i-schedule-a-task-to-run-less-than-every-10-ms
       val newState = State(s.set + a, a :: s.list)
       become(process(newState)) //Erlang-style state transition
       sender ! true

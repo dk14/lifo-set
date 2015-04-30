@@ -1,9 +1,6 @@
 import scala.io.Source
 
-/**
- * Created by user on 4/30/15.
- */
-trait T9 {
+trait T99 {
 
   val translate = Map(
     ' ' -> '1',
@@ -48,7 +45,7 @@ trait T9 {
 
 }
 
-object T9 extends T9 with App {
+object T9 extends T99 with App {
   val filename = args.head
   val query = args.tail.head
   val file = Source.fromFile(filename).getLines

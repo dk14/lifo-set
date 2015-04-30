@@ -1,5 +1,5 @@
 import akka.actor.ActorSystem
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.{Executors, ScheduledExecutorService, TimeUnit}
 import org.scalatest.{Sequential, Matchers, FunSuite}
 import scala.util.Random
 
@@ -8,6 +8,8 @@ import scala.util.Random
  */
 trait AddressCacheTestBase extends FunSuite with Matchers {
   def cacheFactory: AddressCache[String]
+
+  implicit lazy val es: ScheduledExecutorService = Executors.newScheduledThreadPool(1)
 
   def N = 100
 
@@ -104,22 +106,29 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     reminder.size shouldBe 50
   }}
 
-  ignore ("expiration time") {
+  test ("expiration time") {
     val cache = cacheFactory
+    cache.add("A")
+    cache.peek shouldBe "A"
+    Thread.sleep(200)
+    cache.take() shouldBe null
 
   }
 
 }
 
+
+
+
 class AddressCacheTest extends AddressCacheTestBase {
   implicit val as = ActorSystem()
-  def cacheFactory = new AkkaBasedCache[String](5, TimeUnit.SECONDS)
+  def cacheFactory = new AkkaBasedCache[String](100, TimeUnit.MILLISECONDS)
 }
 
 class AddressCacheCASTest extends AddressCacheTestBase {
-  def cacheFactory = new LinearAccessAndConstantPut[String](5, TimeUnit.SECONDS)
+  def cacheFactory = new LinearAccessAndConstantPut[String](100, TimeUnit.MILLISECONDS)
 }
 
 class AddressCacheCASTest2 extends AddressCacheTestBase {
-  def cacheFactory = new ConstantAccessPut[String](5, TimeUnit.SECONDS)
+  def cacheFactory = new ConstantOperations[String](100, TimeUnit.MILLISECONDS)
 }

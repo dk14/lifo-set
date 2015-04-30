@@ -8,14 +8,15 @@ import Function._
 
 
 /**
- * This should be the fastest one.
+ * This should be the fastest one, especially for big buffers
  *
  * It uses two collections, both are CAS-based, so no locks there
  *
  * It's thread-safe, sequentially-consistent in "read-your-own-writes" meaning
  *
  */
-class ConstantAccessPut[InetAddress <: AnyRef](maxAge: Long, timeUnit: TimeUnit) extends AddressCache[InetAddress](maxAge, timeUnit) {
+class ConstantOperations[InetAddress <: AnyRef](maxAge: Long, timeUnit: TimeUnit)(implicit val ees: ScheduledExecutorService)
+  extends AddressCacheScheduler[InetAddress](maxAge, timeUnit) {
 
   private val stack = new ConcurrentLinkedDeque[InetAddress]
 
@@ -25,6 +26,7 @@ class ConstantAccessPut[InetAddress <: AnyRef](maxAge: Long, timeUnit: TimeUnit)
 
   override def add(addr: InetAddress): Boolean = {
     stack addFirst addr //to preserve order and avoid races by guarantee that this put happens-before all putIfAbscents
+    scheduleRemove(addr)
     if (set.putIfAbsent(addr, addr).isEmpty) true else {
       stack remove addr //it may not be previously added address, the point is to do remove N times, where N - is count of loosed puts
       false
@@ -52,31 +54,26 @@ class ConstantAccessPut[InetAddress <: AnyRef](maxAge: Long, timeUnit: TimeUnit)
  * but it works slower for big collections
  *
  */
-class LinearAccessAndConstantPut[InetAddress <: AnyRef](maxAge: Long, timeUnit: TimeUnit) extends AddressCache[InetAddress](maxAge, timeUnit){
+class LinearAccessAndConstantPut[InetAddress <: AnyRef](maxAge: Long, timeUnit: TimeUnit)(implicit val ees: ScheduledExecutorService)
+  extends AddressCacheScheduler[InetAddress](maxAge, timeUnit){
 
   private case class Info(seqNumber: Long, v: InetAddress, timestamp: Long = System.currentTimeMillis()) {override def toString = seqNumber.toString}
 
   private val set = new TrieMap[InetAddress, Info]()
 
-  /*
-    This is the primitive vector clock: http://en.wikipedia.org/wiki/Vector_clock
-   */
-  private val clock = new AtomicLong(1)
+  private val clock = new AtomicLong(1) //This is the primitive vector clock: http://en.wikipedia.org/wiki/Vector_clock
 
   override def add(addr: InetAddress): Boolean = { //O(1)
+    scheduleRemove(addr)
     val nn = clock.incrementAndGet()
     val info = Info(nn, addr)
     set.putIfAbsent(addr, info).isEmpty
   }
 
-  override def peek: InetAddress =  //O(N)
-    Try(set.maxBy(x => x._2.seqNumber -> x._2.timestamp)._1) getOrElse nulll //timestamp is used in case of `Long`'s overflow
-
+  override def peek: InetAddress =  Try(set.maxBy(x => x._2.seqNumber -> x._2.timestamp)._1) getOrElse nulll //it's O(N); timestamp is used in case of `Long`'s overflow
 
   override def take(): InetAddress = set.remove(peek).map(_.v) getOrElse nulll //O(N)
 
-
-
-  override def remove(addr: InetAddress): Boolean = set.remove(addr).nonEmpty
+  override def remove(addr: InetAddress): Boolean = set.remove(addr).nonEmpty //O(1)
 }
 

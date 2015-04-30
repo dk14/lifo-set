@@ -1,5 +1,5 @@
 import java.util.concurrent.atomic.AtomicReference
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.{ScheduledExecutorService, TimeUnit}
 
 /**
  * Created by user on 4/29/15.
@@ -16,5 +16,16 @@ abstract class AddressCache[InetAddress](maxAge: Long, timeUnit: TimeUnit) {
 
   def take(): InetAddress
 
+
+
   protected def nulll = null.asInstanceOf[InetAddress]
+}
+
+abstract class AddressCacheScheduler[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit val es: ScheduledExecutorService)
+  extends AddressCache[InetAddress](maxAge, timeUnit) {
+
+  protected def scheduleRemove(addr: InetAddress) = es.schedule(new Runnable {
+    override def run(): Unit = remove(addr)
+  }, maxAge, timeUnit)
+
 }

@@ -17,8 +17,8 @@ import scala.reflect.ClassTag
 class AkkaBasedCache[InetAddress: ClassTag](maxAge: Long, timeUnit: TimeUnit)(implicit sys: ActorSystem)
   extends AddressCache[InetAddress](maxAge, timeUnit){
 
-  implicit val timeout = Duration(maxAge, timeUnit)
-  implicit val akkaTimeout = akka.util.Timeout(timeout)
+  private implicit val timeout = Duration(maxAge, timeUnit)
+  private implicit val akkaTimeout = akka.util.Timeout(timeout)
 
   val model = new Model[InetAddress]
   import model._
@@ -26,8 +26,8 @@ class AkkaBasedCache[InetAddress: ClassTag](maxAge: Long, timeUnit: TimeUnit)(im
   val actor = sys.actorOf(Props(classOf[Underlying[InetAddress]], timeout, model))
 
   override def add(addr: InetAddress): Boolean = Await.result((actor ? Add(addr)).mapTo[Boolean], timeout)
-  override def peek: InetAddress = Await.result((actor ? Peek).mapTo[Option[InetAddress]], timeout).getOrElse(null.asInstanceOf[InetAddress])
-  override def take(): InetAddress = Await.result((actor ? Take).mapTo[Option[InetAddress]], timeout).getOrElse(null.asInstanceOf[InetAddress])
+  override def peek: InetAddress = Await.result((actor ? Peek).mapTo[Option[InetAddress]], timeout).getOrElse(nulll)
+  override def take(): InetAddress = Await.result((actor ? Take).mapTo[Option[InetAddress]], timeout).getOrElse(nulll)
   override def remove(addr: InetAddress): Boolean = Await.result((actor ? Remove(addr)).mapTo[Boolean], timeout)
 
 }

@@ -9,7 +9,7 @@ import scala.util.Random
 trait AddressCacheTestBase extends FunSuite with Matchers {
   def cacheFactory: AddressCache[String]
 
-  test("single-thread") {
+  test("single-thread") { (0 to 20) foreach { _ =>
     val cache = cacheFactory
     cache add "A" shouldBe true
     cache add "A" shouldBe false
@@ -23,9 +23,13 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     cache remove "C" shouldBe false
     cache.peek shouldBe null
     cache take() shouldBe null
-  }
 
-  test ("multi-thread: put A,A,B,C -> delete B; put A, C, Z; afterAll: check A, C, Z ") {
+    cache add "A" shouldBe true
+    cache take() shouldBe "A"
+    cache add "A" shouldBe true
+  }}
+
+  test ("multi-thread: put A,A,B,C -> delete B; put A, C, Z; afterAll: check A, C, Z ") { (0 to 100) foreach { _ =>
     val cache = cacheFactory
 
     def task1 = List(
@@ -58,10 +62,10 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     results should contain ("Z")
     results filter("Z" !=) should be (List("A", "C"))
 
-  }
+  }}
 
   test("multi-thread take") {
-    (0 to 20) foreach { _ =>
+    (0 to 100) foreach { _ =>
 
       val cache = cacheFactory
 
@@ -84,13 +88,13 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     }
   }
 
-  test("do not loose any elements") {
+  test("do not loose any elements") { (0 to 100) foreach { _ =>
     val cache = cacheFactory
     (1 to 100).par map (_.toString) map cache.add
     (1 to 50).par map (_.toString) map cache.remove
     val reminder = Stream continually cache.take takeWhile (null ne)
     reminder.size shouldBe 50
-  }
+  }}
 
   ignore ("expiration time") {
     val cache = cacheFactory

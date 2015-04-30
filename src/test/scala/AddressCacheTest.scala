@@ -1,7 +1,7 @@
 import akka.actor.ActorSystem
 import java.util.concurrent.{Executors, ScheduledExecutorService, TimeUnit}
-import org.scalatest.{Sequential, Matchers, FunSuite}
-import scala.util.Random
+import org.scalatest.{Matchers, FunSuite}
+
 
 /**
  * Created by user on 4/30/15.
@@ -13,16 +13,19 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
 
   def N = 100
 
-  def time[T](name: String)(code: => T) {
-    val init = System.currentTimeMillis()
-    (0 to N) foreach { _ =>
-      code
+  def test[T](name: String, fullName: String)(code: AddressCache[String] => T) {
+    test(fullName){
+      val init = System.currentTimeMillis()
+      (0 to N) foreach { _ =>
+        code(cacheFactory)
+      }
+      println("[" + this.getClass.getSimpleName + "] " + name + ": " + (System.currentTimeMillis() - init).toDouble / N + " ms")
     }
-    println("[" + this.getClass.getSimpleName + "]" + name + ": " + (System.currentTimeMillis() - init).toDouble / N + " ms")
   }
 
-  test("single-thread") { time("single") {
-    val cache = cacheFactory
+
+  test("single", "single-thread") { cache =>
+
     cache add "A" shouldBe true
     cache add "A" shouldBe false
     cache add "B" shouldBe true
@@ -39,10 +42,9 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     cache add "A" shouldBe true
     cache take() shouldBe "A"
     cache add "A" shouldBe true
-  }}
+  }
 
-  test ("multi-thread: put A,A,B,C -> delete B; put A, C, Z; afterAll: check A, C, Z ") { time("multi") {
-    val cache = cacheFactory
+  test ("multi", "multi-thread: put A,A,B,C -> delete B; put A, C, Z; afterAll: check A, C, Z ") { cache =>
 
     def task1 = List(
       cache add "A",
@@ -66,29 +68,25 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
 
     oks should be > 5 // putA + putB + putC + putZ + deleteB = 5
 
-    val results = List(cache.take, cache.take, cache.take) reverse
-
-    //println(results ++ Stream.continually(cache.take).takeWhile(null ne).toList.reverse)
+    val results = List(cache.take(), cache.take(), cache.take()) reverse
 
     cache.take() shouldBe null
     results should contain ("Z")
     results filter("Z" !=) should be (List("A", "C"))
 
-  }}
+  }
 
-  test("multi-thread take") { time("multi-take") {
-
-      val cache = cacheFactory
+  test("multi-take", "multi-thread take") { cache =>
 
       val options = List("A", "B", "C")
       val processed = (1 to 100).par.flatMap { i =>
-        if (i % 4 == 3) Option(cache.take()) else {
+        if (i % 4 == 3) Option(cache take()) else {
           cache add options(i % 4)
           None
         }
       }
 
-      val reminder = Stream.continually(cache.take).takeWhile(null ne).toList
+      val reminder = Stream continually cache.take() takeWhile(null ne)
 
       reminder.size shouldBe reminder.toSet.size //no duplicates
 
@@ -96,15 +94,16 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
 
       (options.toSet -- allTaken.toSet) shouldBe empty //check that all elements had been in cache
       allTaken.toSet.size shouldBe options.size
-  }}
+  }
 
-  test("do not loose any elements") { time("noloose") {
-    val cache = cacheFactory
+  test("noloose", "do not loose any elements") { cache =>
+
     (1 to 100).par map (_.toString) map cache.add
     (1 to 50).par map (_.toString) map cache.remove
-    val reminder = Stream continually cache.take takeWhile (null ne)
+
+    val reminder = Stream continually cache.take() takeWhile (null ne)
     reminder.size shouldBe 50
-  }}
+  }
 
   test ("expiration time") {
     val cache = cacheFactory
@@ -112,23 +111,19 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     cache.peek shouldBe "A"
     Thread.sleep(200)
     cache.take() shouldBe null
-
   }
 
 }
-
-
-
 
 class AddressCacheTest extends AddressCacheTestBase {
   implicit val as = ActorSystem()
   def cacheFactory = new AkkaBasedCache[String](100, TimeUnit.MILLISECONDS)
 }
 
-class AddressCacheCASTest extends AddressCacheTestBase {
+class AddressCacheCASTestLinear extends AddressCacheTestBase {
   def cacheFactory = new LinearAccessAndConstantPut[String](100, TimeUnit.MILLISECONDS)
 }
 
-class AddressCacheCASTest2 extends AddressCacheTestBase {
+class AddressCacheCASTestConstant extends AddressCacheTestBase {
   def cacheFactory = new ConstantOperations[String](100, TimeUnit.MILLISECONDS)
 }

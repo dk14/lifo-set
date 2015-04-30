@@ -3,8 +3,7 @@ import org.scalatest.{Matchers, FunSuite}
 /**
  * Created by user on 4/30/15.
  */
-class T9Test  extends FunSuite with Matchers with T99 {
-
+class T9Test extends FunSuite with Matchers with T99 {
 
   def file =
     """|cappuccino
@@ -23,7 +22,5 @@ class T9Test  extends FunSuite with Matchers with T99 {
          |chocolate
          |cinnamon""".stripMargin
   }
-
-
 
 }

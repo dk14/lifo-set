@@ -1,5 +1,4 @@
 import akka.actor.{Props, ActorSystem, Actor}
-import akka.actor.Actor._
 import akka.pattern._
 import java.util.concurrent.TimeUnit
 import scala.collection._
@@ -9,7 +8,7 @@ import scala.reflect.ClassTag
 
 /**
  * Akka-based implementation.
- * It's strong-consistent. Same can be achieved with @synchronized
+ * Same can be achieved with @synchronized or locks.
  *
  * P.S. Remove operation is O(N) here, but it's also possible to make it O(1) by removing the element from set only
  * and ignoring all heads, that do not exists in the set during peek/take.
@@ -32,9 +31,8 @@ class AkkaBasedCache[InetAddress: ClassTag](maxAge: Long, timeUnit: TimeUnit)(im
 
 }
 
-
-
 class Model[InetAddress] {
+
   sealed trait Command
   case class Add(addr: InetAddress) extends Command //O(1)
   case object Peek extends Command //O(1)
@@ -51,8 +49,8 @@ class Underlying[InetAddress](timeout: FiniteDuration, model: Model[InetAddress]
   /**
    * This is the state of the actor.
    * LinkedList + Set were chosen in preference to LinkedHashSet as the last one has linear access to last added element
-   * @param set
-   * @param list
+   * @param set is used to check uniqueness
+   * @param list is used to preserve order
    */
 
   case class State(set: Set[InetAddress] = Set.empty[InetAddress], list: List[InetAddress] = Nil)

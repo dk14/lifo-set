@@ -9,7 +9,17 @@ import scala.util.Random
 trait AddressCacheTestBase extends FunSuite with Matchers {
   def cacheFactory: AddressCache[String]
 
-  test("single-thread") { (0 to 20) foreach { _ =>
+  def N = 100
+
+  def time[T](name: String)(code: => T) {
+    val init = System.currentTimeMillis()
+    (0 to N) foreach { _ =>
+      code
+    }
+    println("[" + this.getClass.getSimpleName + "]" + name + ": " + (System.currentTimeMillis() - init).toDouble / N + " ms")
+  }
+
+  test("single-thread") { time("single") {
     val cache = cacheFactory
     cache add "A" shouldBe true
     cache add "A" shouldBe false
@@ -29,7 +39,7 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     cache add "A" shouldBe true
   }}
 
-  test ("multi-thread: put A,A,B,C -> delete B; put A, C, Z; afterAll: check A, C, Z ") { (0 to 100) foreach { _ =>
+  test ("multi-thread: put A,A,B,C -> delete B; put A, C, Z; afterAll: check A, C, Z ") { time("multi") {
     val cache = cacheFactory
 
     def task1 = List(
@@ -64,8 +74,7 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
 
   }}
 
-  test("multi-thread take") {
-    (0 to 100) foreach { _ =>
+  test("multi-thread take") { time("multi-take") {
 
       val cache = cacheFactory
 
@@ -85,10 +94,9 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
 
       (options.toSet -- allTaken.toSet) shouldBe empty //check that all elements had been in cache
       allTaken.toSet.size shouldBe options.size
-    }
-  }
+  }}
 
-  test("do not loose any elements") { (0 to 100) foreach { _ =>
+  test("do not loose any elements") { time("noloose") {
     val cache = cacheFactory
     (1 to 100).par map (_.toString) map cache.add
     (1 to 50).par map (_.toString) map cache.remove

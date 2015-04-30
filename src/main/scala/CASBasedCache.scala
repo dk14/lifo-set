@@ -10,7 +10,7 @@ import Function._
 /**
  * This should be the fastest one.
  *
- * It uses two collections
+ * It uses two collections, both are CAS-based, so no locks there
  *
  * It's thread-safe, sequentially-consistent in "read-your-own-writes" meaning
  *
@@ -23,14 +23,16 @@ class ConstantAccessPut[InetAddress <: AnyRef](maxAge: Long, timeUnit: TimeUnit)
 
   private val set = new TrieMap[InetAddress, InetAddress]()
 
-  override def add(addr: InetAddress): Boolean = if (set.putIfAbsent(addr, addr).isEmpty) { // O(1)
-    stack addFirst addr
-    true
-  } else false
-
+  override def add(addr: InetAddress): Boolean = {
+    stack addFirst addr //to preserve order and avoid races by guarantee that this put happens-before all putIfAbscents
+    if (set.putIfAbsent(addr, addr).isEmpty) true else {
+      stack remove addr //it may not be previously added address, the point is to do remove N times, where N - is count of loosed puts
+      false
+    }
+  }
 
   override def peek: InetAddress =  // effective O(1)
-    stackScala.find(set.contains) getOrElse nulll //skip removed elements
+    stackScala.find(set.contains) getOrElse nulll //skip removed and phantom elements
 
   override def take(): InetAddress = { // effective O(1)
     val p = peek
@@ -45,6 +47,9 @@ class ConstantAccessPut[InetAddress <: AnyRef](maxAge: Long, timeUnit: TimeUnit)
 
 /**
  * Atomic, non-blocking, but slow access
+ *
+ * The synchronization here is much simpler (it's based on vector clock) and still non-blocking,
+ * but it works slower for big collections
  *
  */
 class LinearAccessAndConstantPut[InetAddress <: AnyRef](maxAge: Long, timeUnit: TimeUnit) extends AddressCache[InetAddress](maxAge, timeUnit){

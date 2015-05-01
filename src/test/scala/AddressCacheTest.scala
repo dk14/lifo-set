@@ -1,6 +1,7 @@
 import akka.actor.ActorSystem
 import java.util.concurrent.{Executors, ScheduledExecutorService, TimeUnit}
 import org.scalatest.{Matchers, FunSuite}
+import scala.util.Try
 
 
 /**
@@ -14,12 +15,12 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
   def N = 100
 
   def test[T](name: String, fullName: String)(code: AddressCache[String] => T) {
-    test(fullName){
-      val init = System.currentTimeMillis()
+    test(fullName) {
+      val init = System.currentTimeMillis
       (0 to N) foreach { _ =>
         code(cacheFactory)
       }
-      println("[" + this.getClass.getSimpleName + "] " + name + ": " + (System.currentTimeMillis() - init).toDouble / N + " ms")
+      println("[" + this.getClass.getSimpleName + "] " + name + ": " + (System.currentTimeMillis - init).toDouble / N + " ms")
     }
   }
 
@@ -105,6 +106,12 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     reminder.size shouldBe 50
   }
 
+  test ("null test") {
+    val cache = cacheFactory
+    Try(cache.add(null)).toOption shouldBe empty
+    Try(cache.remove(null)).toOption shouldBe empty
+  }
+
   test ("expiration time") {
     val cache = cacheFactory
     cache.add("A")
@@ -115,15 +122,15 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
 
 }
 
-class AddressCacheTest extends AddressCacheTestBase {
+class AkkaBasedCacheTest extends AddressCacheTestBase {
   implicit val as = ActorSystem()
   def cacheFactory = new AkkaBasedCache[String](1000, TimeUnit.MILLISECONDS)
 }
 
-class AddressCacheCASTestLinear extends AddressCacheTestBase {
+class LinearAccessAndConstantPutTest extends AddressCacheTestBase {
   def cacheFactory = new LinearAccessAndConstantPut[String](1000, TimeUnit.MILLISECONDS)
 }
 
-class AddressCacheCASTestConstant extends AddressCacheTestBase {
+class ConstantOperationsTest extends AddressCacheTestBase {
   def cacheFactory = new ConstantOperations[String](1000, TimeUnit.MILLISECONDS)
 }

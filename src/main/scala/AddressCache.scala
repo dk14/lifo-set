@@ -14,11 +14,25 @@ abstract class AddressCache[InetAddress](maxAge: Long, timeUnit: TimeUnit) {
 
 }
 
-abstract class AddressCacheScheduler[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit val es: ScheduledExecutorService)
+abstract class AddressCacheSchedule[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit val es: ScheduledExecutorService)
   extends AddressCache[InetAddress](maxAge, timeUnit) {
 
   protected def scheduleRemove(addr: InetAddress) = es.schedule(new Runnable {
     override def run(): Unit = remove(addr)
   }, maxAge, timeUnit)
+
+
+
+}
+
+trait TakeFromPeek[InetAddress] {
+  this: AddressCache[InetAddress] =>
+
+  override def take(): InetAddress = {
+    val p = peek
+    Option(p).map(remove)
+    p
+  }
+
 
 }

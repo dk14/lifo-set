@@ -14,25 +14,31 @@ import scala.reflect.ClassTag
  * and ignoring all heads, that do not exists in the set during peek/take.
  */
 class AkkaBasedCache[InetAddress: ClassTag](maxAge: Long, timeUnit: TimeUnit)(implicit sys: ActorSystem)
-  extends AddressCache[InetAddress](maxAge, timeUnit){
+  extends AddressCache[InetAddress](maxAge, timeUnit) {
 
   private implicit val timeout = Duration(maxAge, timeUnit)
   private implicit val akkaTimeout = akka.util.Timeout(timeout)
 
-  val model = new Model[InetAddress]
+  private val model = new Model[InetAddress]
   import model._
 
-  val actor = sys.actorOf(Props(classOf[Underlying[InetAddress]], timeout, model))
+  private val actor = sys.actorOf(Props(classOf[Underlying[InetAddress]], timeout, model))
 
-  override def add(addr: InetAddress): Boolean = Await.result((actor ? Add(addr)).mapTo[Boolean], timeout)
+  override def add(addr: InetAddress): Boolean = {
+    assert (addr != null)
+    Await.result((actor ? Add(addr)).mapTo[Boolean], timeout)
+  }
   override def peek: InetAddress = Await.result((actor ? Peek).mapTo[Option[InetAddress]], timeout).getOrElse(nulll)
   override def take(): InetAddress = Await.result((actor ? Take).mapTo[Option[InetAddress]], timeout).getOrElse(nulll)
-  override def remove(addr: InetAddress): Boolean = Await.result((actor ? Remove(addr)).mapTo[Boolean], timeout)
+  override def remove(addr: InetAddress): Boolean = {
+    assert (addr != null)
+    Await.result((actor ? Remove(addr)).mapTo[Boolean], timeout)
+  }
   //"ask pattern" affects performance: http://stackoverflow.com/questions/20875837/why-isnt-ask-defined-directly-on-actorref-for-akka
 
 }
 
-class Model[InetAddress] {
+private class Model[InetAddress] {
 
   sealed trait Command
   case class Add(addr: InetAddress) extends Command //O(1)
@@ -43,13 +49,13 @@ class Model[InetAddress] {
 }
 
 
-class Underlying[InetAddress](timeout: FiniteDuration, model: Model[InetAddress]) extends Actor {
+private class Underlying[InetAddress](timeout: FiniteDuration, model: Model[InetAddress]) extends Actor {
   import context._
   import model._
 
   /**
    * This is the state of the actor.
-   * LinkedList + Set were chosen in preference to LinkedHashSet as the last one has linear access to last added element
+   * `LinkedList` + `Set` were chosen in preference to `LinkedHashSet`, as `LinkedList` is immutable and has constant access to last added element
    * @param set is used to check uniqueness
    * @param list is used to preserve order
    */

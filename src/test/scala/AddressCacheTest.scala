@@ -44,7 +44,7 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     cache add "A" shouldBe true
   }
 
-  test ("multi", "multi-thread: put A,A,B,C -> delete B; put A, C, Z; afterAll: check A, C, Z ") { cache =>
+  test("multi", "multi-thread: put A,A,B,C -> delete B; put A, C, Z; afterAll: check A, C, Z ") { cache =>
 
     def task1 = List(
       cache add "A",

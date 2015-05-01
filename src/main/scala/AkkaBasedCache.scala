@@ -14,7 +14,7 @@ import scala.reflect.ClassTag
  * and ignoring all heads, that do not exists in the set during peek/take.
  */
 class AkkaBasedCache[InetAddress: ClassTag](maxAge: Long, timeUnit: TimeUnit)(implicit sys: ActorSystem)
-  extends AddressCache[InetAddress](maxAge, timeUnit) {
+  extends AddressCache[InetAddress](maxAge, timeUnit) with TakeFromPeek[InetAddress]{
 
   private implicit val timeout = Duration(maxAge, timeUnit)
   private implicit val akkaTimeout = akka.util.Timeout(timeout)
@@ -25,11 +25,13 @@ class AkkaBasedCache[InetAddress: ClassTag](maxAge: Long, timeUnit: TimeUnit)(im
   private val actor = sys.actorOf(Props(classOf[Underlying[InetAddress]], timeout, model))
 
   override def add(addr: InetAddress): Boolean = {
-    assert (addr != null)
-    Await.result((actor ? Add(addr)).mapTo[Boolean], timeout)
+    assert(addr != null)
+    val r = Await.result((actor ? Add(addr)).mapTo[Boolean], timeout)
+    if (r) elementAdded(addr)
+    r
   }
   override def peek: InetAddress = Await.result((actor ? Peek).mapTo[Option[InetAddress]], timeout).getOrElse(nulll)
-  override def take(): InetAddress = Await.result((actor ? Take).mapTo[Option[InetAddress]], timeout).getOrElse(nulll)
+  //override def take(): InetAddress = Await.result((actor ? Take).mapTo[Option[InetAddress]], timeout).getOrElse(nulll)
   override def remove(addr: InetAddress): Boolean = {
     assert (addr != null)
     Await.result((actor ? Remove(addr)).mapTo[Boolean], timeout)
@@ -72,13 +74,6 @@ private class Underlying[InetAddress](timeout: FiniteDuration, model: Model[Inet
       sender ! true
     case Add(a) => sender ! false
     case Peek => sender ! s.list.headOption
-    case Take =>
-      val res = s.list.headOption map { h =>
-        val newState = State(s.set - h, s.list.tail)
-        become(process(newState))
-        h
-      }
-      sender ! res
     case Remove(a) if s.set.contains(a) =>
       val newState = State(s.set - a, s.list.filter(a !=))
       become(process(newState))

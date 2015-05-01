@@ -1,6 +1,9 @@
-import java.util.concurrent.{ScheduledExecutorService, TimeUnit}
+import java.util.concurrent.locks.ReentrantLock
+import java.util.concurrent.{LinkedBlockingQueue, BlockingQueue, ScheduledExecutorService, TimeUnit}
+import scala.concurrent.{Future, Promise}
 
-abstract class AddressCache[InetAddress](maxAge: Long, timeUnit: TimeUnit) {
+abstract class AddressCache[InetAddress](val maxAge: Long, val timeUnit: TimeUnit) {
+
 
   assert (TimeUnit.SECONDS.convert(maxAge, timeUnit) <= 21474835) //akka can't have more, so this is restriction for all to preserve LSP
   assert (TimeUnit.SECONDS.convert(maxAge, timeUnit) > 0)
@@ -32,10 +35,20 @@ abstract class AddressCacheSchedule[InetAddress](maxAge: Long, timeUnit: TimeUni
 trait TakeFromPeek[InetAddress] {
   this: AddressCache[InetAddress] =>
 
+  val queue = new LinkedBlockingQueue[InetAddress](1)
+
+  val lock = new ReentrantLock()
+  val cond = lock.newCondition()
+
+  def elementAdded(a: InetAddress) = queue.offer(a) //notify
+
   override def take(): InetAddress = {
-    val p = peek
-    Option(p).map(remove)
-    p
+    Option(peek) map { p =>
+      if(remove(p)) p else take()
+    } getOrElse {
+      queue.poll(maxAge, timeUnit) //used maxAge as timeout
+      take() //wait
+    }
   }
 
 

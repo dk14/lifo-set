@@ -2,6 +2,7 @@ import akka.actor.ActorSystem
 import java.util.concurrent.{Executors, ScheduledExecutorService, TimeUnit}
 import org.scalatest.{Matchers, FunSuite}
 import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, Future}
 import scala.util.Try
 
 
@@ -10,7 +11,9 @@ import scala.util.Try
  */
 trait AddressCacheTestBase extends FunSuite with Matchers {
 
-  def cacheFactory(time: Long = 1000, unit: TimeUnit = TimeUnit.MILLISECONDS): AddressCache[String]
+  val duration = Duration(1000, TimeUnit.MILLISECONDS)
+
+  def cacheFactory(time: Long = duration.length, unit: TimeUnit = duration.unit): AddressCache[String]
 
   implicit lazy val es: ScheduledExecutorService = Executors.newScheduledThreadPool(1)
 
@@ -24,6 +27,12 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
       }
       println("[" + this.getClass.getSimpleName + "] " + name + ": " + (System.currentTimeMillis - init).toDouble / N + " ms")
     }
+  }
+
+  def nonBlockingTake(cache: AddressCache[String]) = {
+    val p = cache.peek
+    Option(p).map(cache.remove)
+    p
   }
 
 
@@ -40,12 +49,32 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     cache remove "A" shouldBe false
     cache remove "C" shouldBe false
     cache.peek shouldBe null
-    cache take() shouldBe null
+
 
     cache add "A" shouldBe true
     cache take() shouldBe "A"
     cache add "A" shouldBe true
   }
+
+  test("blocking-take", "blocking-take") { cache =>
+    import scala.concurrent.ExecutionContext.Implicits.global
+
+    val t1 = Future(List(cache.take(), cache.take(), cache.take()))
+    val t2 = Future (List(cache.take(), cache.take()))
+
+    cache.add("A")
+    cache.add("B")
+    cache.add("C")
+    cache.add("D")
+    cache.add("E")
+
+    val res1 = Await.result(t1, duration).toSet
+    val res2 = Await.result(t2, duration).toSet
+
+    (res1 & res2) shouldBe empty
+
+  }
+
 
   test("multi", "multi-thread: put A,A,B,C -> delete B; put A, C, Z; afterAll: check A, C, Z ") { cache =>
 
@@ -73,23 +102,26 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
 
     val results = List(cache.take(), cache.take(), cache.take()) reverse
 
-    cache.take() shouldBe null
+    cache.peek shouldBe null
     results should contain ("Z")
     results filter("Z" !=) should be (List("A", "C"))
 
   }
 
+
+
+
   test("multi-take", "multi-thread take") { cache =>
 
       val options = List("A", "B", "C")
       val processed = (1 to 100).par.flatMap { i =>
-        if (i % 4 == 3) Option(cache take()) else {
+        if (i % 4 == 3) Option(nonBlockingTake(cache)) else {
           cache add options(i % 4)
           None
         }
       } toList
 
-      val reminder = Stream continually cache.take() takeWhile(null ne)
+      val reminder = Stream continually nonBlockingTake(cache) takeWhile(null ne)
 
       reminder.size shouldBe reminder.toSet.size //no duplicates
 
@@ -104,7 +136,7 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     (1 to 100).par map (_.toString) map cache.add foreach identity
     (1 to 50).par map (_.toString) map cache.remove foreach identity
 
-    val reminder = Stream continually cache.take() takeWhile (null ne)
+    val reminder = Stream continually nonBlockingTake(cache) takeWhile (null ne)
     reminder.size shouldBe 50
   }
 
@@ -129,7 +161,7 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     cache.add("A")
     cache.peek shouldBe "A"
     Thread.sleep(2000)
-    cache.take() shouldBe null
+    cache.peek shouldBe null
   }
 
 }

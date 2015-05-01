@@ -24,10 +24,14 @@ class ConstantOperations[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit
     assert (addr != null)
     stack addFirst addr // to preserve order and avoid races
     scheduleRemove(addr)
-    if (set.putIfAbsent(addr, addr).isEmpty) true else {
+    if (set.putIfAbsent(addr, addr).isEmpty) {
+      elementAdded(addr)
+      true
+    } else {
       stack remove addr // it may not be previously added address, the point is to do remove N times, where N - is count of loosed puts
       false
     }
+
   }
 
   override def peek: InetAddress =  // effective O(1)
@@ -60,7 +64,9 @@ class LinearAccessAndConstantPut[InetAddress](maxAge: Long, timeUnit: TimeUnit)(
     scheduleRemove(addr)
     val nn = clock.incrementAndGet()
     val info = Info(nn, addr)
-    set.putIfAbsent(addr, info).isEmpty
+    val r = set.putIfAbsent(addr, info).isEmpty
+    if (r) elementAdded(addr)
+    r
   }
 
   /**

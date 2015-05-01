@@ -5,13 +5,10 @@ import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future}
 import scala.util.Try
 
-
-/**
- * Created by user on 4/30/15.
- */
 trait AddressCacheTestBase extends FunSuite with Matchers {
 
-  val duration = Duration(1000, TimeUnit.MILLISECONDS)
+  val timeOut = 1000
+  val duration = Duration(timeOut, TimeUnit.MILLISECONDS)
 
   def cacheFactory(time: Long = duration.length, unit: TimeUnit = duration.unit): AddressCache[String]
 
@@ -50,7 +47,6 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     cache remove "C" shouldBe false
     cache.peek shouldBe null
 
-
     cache add "A" shouldBe true
     cache take() shouldBe "A"
     cache add "A" shouldBe true
@@ -62,11 +58,18 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     val t1 = Future(List(cache.take(), cache.take(), cache.take()))
     val t2 = Future (List(cache.take(), cache.take()))
 
-    cache.add("A")
-    cache.add("B")
-    cache.add("C")
-    cache.add("D")
-    cache.add("E")
+    Thread.sleep(10)
+
+    Future {
+      cache.add("A")
+      cache.add("B")
+    }
+
+    Future {
+      cache.add("C")
+      cache.add("D")
+      cache.add("E")
+    }
 
     val res1 = Await.result(t1, duration).toSet
     val res2 = Await.result(t2, duration).toSet
@@ -108,27 +111,24 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
 
   }
 
-
-
-
   test("multi-take", "multi-thread take") { cache =>
 
-      val options = List("A", "B", "C")
-      val processed = (1 to 100).par.flatMap { i =>
-        if (i % 4 == 3) Option(nonBlockingTake(cache)) else {
-          cache add options(i % 4)
-          None
-        }
-      } toList
+    val options = List("A", "B", "C")
+    val processed = (1 to 100).par.flatMap { i =>
+      if (i % 4 == 3) Option(nonBlockingTake(cache)) else {
+        cache add options(i % 4)
+        None
+      }
+    } toList
 
-      val reminder = Stream continually nonBlockingTake(cache) takeWhile(null ne)
+    val reminder = Stream continually nonBlockingTake(cache) takeWhile(null ne)
 
-      reminder.size shouldBe reminder.toSet.size //no duplicates
+    reminder.size shouldBe reminder.toSet.size //no duplicates
 
-      val allTaken = processed ++ reminder
+    val allTaken = processed ++ reminder
 
-      (options.toSet -- allTaken.toSet) shouldBe empty //check that all elements had been in cache
-      allTaken.toSet.size shouldBe options.size
+    (options.toSet -- allTaken.toSet) shouldBe empty //check that all elements had been in cache
+    allTaken.toSet.size shouldBe options.size
   }
 
   test("noloose", "do not loose any elements") { cache =>
@@ -160,7 +160,7 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     val cache = cacheFactory()
     cache.add("A")
     cache.peek shouldBe "A"
-    Thread.sleep(2000)
+    Thread.sleep(timeOut * 2)
     cache.peek shouldBe null
   }
 

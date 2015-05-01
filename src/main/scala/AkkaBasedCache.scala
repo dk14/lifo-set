@@ -26,14 +26,17 @@ class AkkaBasedCache[InetAddress: ClassTag](maxAge: Long, timeUnit: TimeUnit)(im
 
   override def add(addr: InetAddress): Boolean = {
     assert(addr != null)
-    val r = Await.result((actor ? Add(addr)).mapTo[Boolean], timeout)
-    if (r) elementAdded(addr)
-    r
+    if (Await.result((actor ? Add(addr)).mapTo[Boolean], timeout)) {
+      change(addr)
+      true
+    } else false
   }
+
   override def peek: InetAddress = Await.result((actor ? Peek).mapTo[Option[InetAddress]], timeout).getOrElse(nulll)
-  //override def take(): InetAddress = Await.result((actor ? Take).mapTo[Option[InetAddress]], timeout).getOrElse(nulll)
+
   override def remove(addr: InetAddress): Boolean = {
     assert (addr != null)
+    change(addr)
     Await.result((actor ? Remove(addr)).mapTo[Boolean], timeout)
   }
   //"ask pattern" affects performance: http://stackoverflow.com/questions/20875837/why-isnt-ask-defined-directly-on-actorref-for-akka
@@ -45,7 +48,6 @@ private class Model[InetAddress] {
   sealed trait Command
   case class Add(addr: InetAddress) extends Command //O(1)
   case object Peek extends Command //O(1)
-  case object Take extends Command //O(1)
   case class Remove(addr: InetAddress) extends Command //O(N), but could be rewritten as O(1)
 
 }

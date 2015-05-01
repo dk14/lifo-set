@@ -2,6 +2,10 @@ import java.util.concurrent.{ScheduledExecutorService, TimeUnit}
 
 abstract class AddressCache[InetAddress](maxAge: Long, timeUnit: TimeUnit) {
 
+  assert (TimeUnit.SECONDS.convert(maxAge, timeUnit) <= 21474835) //akka can't have more, so this is restriction for all to preserve LSP
+  assert (TimeUnit.SECONDS.convert(maxAge, timeUnit) > 0)
+
+
   def add(addr: InetAddress): Boolean
 
   def remove(addr: InetAddress): Boolean

@@ -1,6 +1,7 @@
 import akka.actor.ActorSystem
 import java.util.concurrent.{Executors, ScheduledExecutorService, TimeUnit}
 import org.scalatest.{Matchers, FunSuite}
+import scala.concurrent.duration.Duration
 import scala.util.Try
 
 
@@ -8,7 +9,8 @@ import scala.util.Try
  * Created by user on 4/30/15.
  */
 trait AddressCacheTestBase extends FunSuite with Matchers {
-  def cacheFactory: AddressCache[String]
+
+  def cacheFactory(time: Long = 1000, unit: TimeUnit = TimeUnit.MILLISECONDS): AddressCache[String]
 
   implicit lazy val es: ScheduledExecutorService = Executors.newScheduledThreadPool(1)
 
@@ -18,7 +20,7 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     test(fullName) {
       val init = System.currentTimeMillis
       (0 to N) foreach { _ =>
-        code(cacheFactory)
+        code(cacheFactory())
       }
       println("[" + this.getClass.getSimpleName + "] " + name + ": " + (System.currentTimeMillis - init).toDouble / N + " ms")
     }
@@ -106,14 +108,24 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     reminder.size shouldBe 50
   }
 
-  test ("null test") {
-    val cache = cacheFactory
+  test("null test") {
+    val cache = cacheFactory()
     Try(cache.add(null)).toOption shouldBe empty
     Try(cache.remove(null)).toOption shouldBe empty
   }
 
-  test ("expiration time") {
-    val cache = cacheFactory
+  test("big time") {
+    Duration(Long.MaxValue, TimeUnit.NANOSECONDS) //max for Duration
+    Duration(-1, TimeUnit.NANOSECONDS)
+    val cache = cacheFactory(21474835, TimeUnit.SECONDS) //max for Akka
+    cache.add("A")
+
+    Try(cacheFactory(21474836, TimeUnit.SECONDS)).toOption shouldBe empty //due to LSP
+    Try(cacheFactory(-5, TimeUnit.SECONDS)).toOption shouldBe empty
+  }
+
+  test("expiration time") {
+    val cache = cacheFactory()
     cache.add("A")
     cache.peek shouldBe "A"
     Thread.sleep(2000)
@@ -124,13 +136,13 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
 
 class AkkaBasedCacheTest extends AddressCacheTestBase {
   implicit val as = ActorSystem()
-  def cacheFactory = new AkkaBasedCache[String](1000, TimeUnit.MILLISECONDS)
+  def cacheFactory(time: Long, unit: TimeUnit) = new AkkaBasedCache[String](time, unit)
 }
 
 class LinearAccessAndConstantPutTest extends AddressCacheTestBase {
-  def cacheFactory = new LinearAccessAndConstantPut[String](1000, TimeUnit.MILLISECONDS)
+  def cacheFactory(time: Long, unit: TimeUnit) = new LinearAccessAndConstantPut[String](time, unit)
 }
 
 class ConstantOperationsTest extends AddressCacheTestBase {
-  def cacheFactory = new ConstantOperations[String](1000, TimeUnit.MILLISECONDS)
+  def cacheFactory(time: Long, unit: TimeUnit) = new ConstantOperations[String](time, unit)
 }

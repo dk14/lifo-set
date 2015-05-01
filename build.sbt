@@ -1,3 +1,5 @@
+import CoverallsPlugin.CoverallsKeys._
+
 name := "lifo"
 
 version := "1.0"
@@ -11,3 +13,5 @@ parallelExecution in Test := false
 libraryDependencies +="com.typesafe.akka" %% "akka-actor" % "2.4-SNAPSHOT"
 
 libraryDependencies += "org.scalatest" % "scalatest_2.11" % "2.2.4" % "test"
+
+coverallsToken := "UZOuZGCrfGFUX9OehFeOMbPptgSLJeqCP"

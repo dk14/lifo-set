@@ -66,7 +66,7 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
 
     val oks = processed filter identity size
 
-    oks should be > 5 // putA + putB + putC + putZ + deleteB = 5
+    oks should be >= 5 // putA + putB + putC + putZ + deleteB = 5
 
     val results = List(cache.take(), cache.take(), cache.take()) reverse
 
@@ -84,7 +84,7 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
           cache add options(i % 4)
           None
         }
-      }
+      } toList
 
       val reminder = Stream continually cache.take() takeWhile(null ne)
 
@@ -98,8 +98,8 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
 
   test("noloose", "do not loose any elements") { cache =>
 
-    (1 to 100).par map (_.toString) map cache.add
-    (1 to 50).par map (_.toString) map cache.remove
+    (1 to 100).par map (_.toString) map cache.add foreach identity
+    (1 to 50).par map (_.toString) map cache.remove foreach identity
 
     val reminder = Stream continually cache.take() takeWhile (null ne)
     reminder.size shouldBe 50
@@ -109,7 +109,7 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     val cache = cacheFactory
     cache.add("A")
     cache.peek shouldBe "A"
-    Thread.sleep(200)
+    Thread.sleep(2000)
     cache.take() shouldBe null
   }
 
@@ -117,13 +117,13 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
 
 class AddressCacheTest extends AddressCacheTestBase {
   implicit val as = ActorSystem()
-  def cacheFactory = new AkkaBasedCache[String](100, TimeUnit.MILLISECONDS)
+  def cacheFactory = new AkkaBasedCache[String](1000, TimeUnit.MILLISECONDS)
 }
 
 class AddressCacheCASTestLinear extends AddressCacheTestBase {
-  def cacheFactory = new LinearAccessAndConstantPut[String](100, TimeUnit.MILLISECONDS)
+  def cacheFactory = new LinearAccessAndConstantPut[String](1000, TimeUnit.MILLISECONDS)
 }
 
 class AddressCacheCASTestConstant extends AddressCacheTestBase {
-  def cacheFactory = new ConstantOperations[String](100, TimeUnit.MILLISECONDS)
+  def cacheFactory = new ConstantOperations[String](1000, TimeUnit.MILLISECONDS)
 }

@@ -25,7 +25,7 @@ class ConstantOperations[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit
     stack addFirst addr // to preserve order and avoid races
     scheduleRemove(addr)
     if (set.putIfAbsent(addr, addr).isEmpty) {
-      change(addr)
+      propagate()
       true
     } else {
       stack remove addr // it may not be previously added address, the point is to do remove N times, where N - is count of loosed puts
@@ -38,7 +38,7 @@ class ConstantOperations[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit
 
   override def remove(addr: InetAddress): Boolean = {
     assert (addr != null)
-    change(addr)
+    //propagate(addr)
     set.remove(addr).map(stack.remove).nonEmpty
   } //O(N); can be easily changed to O(1) by removing `.map(stack.remove)`; however, it may affect memory consumption
 
@@ -66,7 +66,7 @@ class LinearAccessAndConstantPut[InetAddress](maxAge: Long, timeUnit: TimeUnit)(
     val info = Info(nn, addr)
 
     if (set.putIfAbsent(addr, info).isEmpty){
-      change(addr)
+      propagate()
       true
     } else false
   }
@@ -82,7 +82,7 @@ class LinearAccessAndConstantPut[InetAddress](maxAge: Long, timeUnit: TimeUnit)(
 
   override def remove(addr: InetAddress): Boolean = {
     assert (addr != null)
-    change(addr)
+    //propagate(addr)
     set.remove(addr).nonEmpty
   } // O(1)
 

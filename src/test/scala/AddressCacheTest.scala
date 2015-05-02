@@ -1,8 +1,8 @@
 import akka.actor.ActorSystem
-import java.util.concurrent.{Executors, ScheduledExecutorService, TimeUnit}
+import java.util.concurrent.{TimeoutException, Executors, ScheduledExecutorService, TimeUnit}
 import org.scalatest.{Matchers, FunSuite}
 import scala.concurrent.duration.Duration
-import scala.concurrent.{Await, Future}
+import scala.concurrent.{Promise, Await, Future}
 import scala.util.Try
 
 trait AddressCacheTestBase extends FunSuite with Matchers {
@@ -75,7 +75,29 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     val res2 = Await.result(t2, duration).toSet
 
     (res1 & res2) shouldBe empty
+  }
 
+  test("take really blocks") {
+    import scala.concurrent.ExecutionContext.Implicits.global
+    val cache = cacheFactory()
+
+    val blockedThread = Promise[Thread]
+    val interruptedException = Promise[Throwable]
+
+    val f = Future {
+      blockedThread success Thread.currentThread()
+      try {
+        cache take()
+      } catch {
+        case t: InterruptedException => interruptedException success t
+        case t: Throwable => throw new Exception(t)
+      }
+    }
+
+    a [TimeoutException] should be thrownBy Await.result(f, duration)
+
+    blockedThread.future foreach(_.interrupt()) //https://gist.github.com/viktorklang/5409467
+    Await.result(interruptedException future, duration) shouldBe an [InterruptedException]
   }
 
 
@@ -108,7 +130,6 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     cache.peek shouldBe null
     results should contain ("Z")
     results filter("Z" !=) should be (List("A", "C"))
-
   }
 
   test("multi-take", "multi-thread take") { cache =>
@@ -152,6 +173,7 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     val cache = cacheFactory(21474835, TimeUnit.SECONDS) //max for Akka
     cache.add("A")
 
+    cacheFactory(1, TimeUnit.NANOSECONDS)
     Try(cacheFactory(21474836, TimeUnit.SECONDS)).toOption shouldBe empty //due to LSP
     Try(cacheFactory(-5, TimeUnit.SECONDS)).toOption shouldBe empty
   }

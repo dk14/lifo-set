@@ -1,10 +1,10 @@
 import akka.actor.{ActorRefFactory, Props, Actor}
-import akka.pattern._
 import java.util.concurrent.TimeUnit
 import scala.collection._
 import scala.concurrent.Await
 import scala.concurrent.duration.{FiniteDuration, Duration}
 import scala.reflect.ClassTag
+import akka.pattern._
 
 /**
  * Akka-based implementation.
@@ -13,11 +13,14 @@ import scala.reflect.ClassTag
  * P.S. Remove operation is O(N) here, but it's also possible to make it O(1) by removing the element from set only
  * and ignoring all heads, that do not exists in the set during peek/take.
  */
-class AkkaBasedCache[InetAddress: ClassTag](maxAge: Long, timeUnit: TimeUnit)(implicit sys: ActorRefFactory)
-  extends AddressCache[InetAddress](maxAge, timeUnit) with TakeFromPeek[InetAddress]{
+class AkkaBasedCache[InetAddress: ClassTag](maxAge: Long, timeUnit: TimeUnit, factor: Int = 1)(implicit sys: ActorRefFactory)
+  extends AddressCache[InetAddress](maxAge, timeUnit) with TakeFromPeek[InetAddress] with AskSupport {
 
-  private implicit val timeout = Duration(maxAge, timeUnit)
+  private implicit val timeout = Duration(factor * maxAge, timeUnit)
   private implicit val akkaTimeout = akka.util.Timeout(timeout)
+
+  assert (timeout.toSeconds <= 21474835)
+  assert (timeout.toSeconds >= 0)
 
   private val model = new Model[InetAddress]
   import model._
@@ -27,7 +30,7 @@ class AkkaBasedCache[InetAddress: ClassTag](maxAge: Long, timeUnit: TimeUnit)(im
   override def add(addr: InetAddress): Boolean = {
     assert(addr != null)
     if (Await.result((actor ? Add(addr)).mapTo[Boolean], timeout)) {
-      change(addr)
+      propagate()
       true
     } else false
   }
@@ -36,7 +39,6 @@ class AkkaBasedCache[InetAddress: ClassTag](maxAge: Long, timeUnit: TimeUnit)(im
 
   override def remove(addr: InetAddress): Boolean = {
     assert (addr != null)
-    change(addr)
     Await.result((actor ? Remove(addr)).mapTo[Boolean], timeout)
   }
   //"ask pattern" affects performance: http://stackoverflow.com/questions/20875837/why-isnt-ask-defined-directly-on-actorref-for-akka

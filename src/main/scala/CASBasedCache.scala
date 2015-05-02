@@ -80,11 +80,10 @@ class LinearAccessAndConstantPut[InetAddress](maxAge: Long, timeUnit: TimeUnit)(
    */
   override def peek: InetAddress = Try(set.maxBy(x => x._2.epoch -> x._2.seqNumber)._1) getOrElse nulll
 
-  override def remove(addr: InetAddress): Boolean = {
+  override def remove(addr: InetAddress): Boolean = { // O(1)
     assert (addr != null)
-    //propagate(addr)
     set.remove(addr).nonEmpty
-  } // O(1)
+  }
 
 }
 

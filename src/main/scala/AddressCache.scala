@@ -38,7 +38,7 @@ trait TakeFromPeek[InetAddress] {
    *
    * it's faster and simpler than `var a = Promise; ...; {a.complete(); a = Promise}` as it doesn't require `ExecutorService`
    * it can be faster than `monitor.notify()` as queue uses `Unsafe.unpark()` + some CAS directly
-   * using `Condition.signal` is a little faster, but it takes more lines of code (explicit `ReentrantLock`)
+   * using `Condition.signal` from `java.util.concurrent` is a little faster, but it takes more lines of code (explicit `ReentrantLock`)
    *
    */
   private val queue = new LinkedBlockingQueue[Unit](1)
@@ -56,9 +56,8 @@ trait TakeFromPeek[InetAddress] {
       } // but be aware of this: http://stackoverflow.com/questions/29663410/bad-use-cases-of-scala-concurrent-blocking
       take() //...endless wait
     } else {
-      propagate() // propagate to other threads (in case if several elements was added after previous propagate)
+      propagate() // propagate notification to other threads (in case if several elements was added after previous propagate)
       ask.decrementAndGet() // "I've got an element!"
-      //change(p) //when called recursively after blocking - wakes up next thread; it compensates that only one thread was notified by queue
       if (remove(p)) p else take() // remove; pickup new if already removed
     }
   }

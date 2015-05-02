@@ -1,26 +1,33 @@
 import akka.actor.ActorSystem
+import com.typesafe.config.{ConfigValueFactory, ConfigFactory}
 import java.util.concurrent.{TimeoutException, Executors, ScheduledExecutorService, TimeUnit}
-import org.scalatest.{Matchers, FunSuite}
+import org.scalatest.{BeforeAndAfterAll, Matchers, FunSuite}
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Promise, Await, Future}
 import scala.util.Try
+import sun.security.krb5.Config
 
-trait AddressCacheTestBase extends FunSuite with Matchers {
+trait AddressCacheTestBase extends FunSuite with Matchers with BeforeAndAfterAll {
 
-  val timeOut = 1000
-  val duration = Duration(timeOut, TimeUnit.MILLISECONDS)
+  val timeoutProp = Option(System.getProperty("timeout")).map(_.toInt).getOrElse(1)
+  val performanceTimeoutProp = Option(System.getProperty("perfTimeout")).map(_.toInt).getOrElse(10)
 
-  def cacheFactory(time: Long = duration.length, unit: TimeUnit = duration.unit): AddressCache[String]
+  val duration = Duration(timeoutProp, TimeUnit.SECONDS)
+  val performanceTimeout = Duration(performanceTimeoutProp, TimeUnit.SECONDS) //used for performance tests
+
+  def cacheFactory(time: Long = duration.length, unit: TimeUnit = duration.unit, factor: Int = 1): AddressCache[String]
 
   implicit lazy val es: ScheduledExecutorService = Executors.newScheduledThreadPool(1)
 
   def N = 100
 
-  def test[T](name: String, fullName: String)(code: AddressCache[String] => T) {
+  def systime = System.currentTimeMillis
+
+  def test[T](name: String, fullName: String, N: Int = N, factor: Int = 1)(code: AddressCache[String] => T) {
     test(fullName) {
-      val init = System.currentTimeMillis
+      val init = systime
       (0 to N) foreach { _ =>
-        code(cacheFactory())
+        code(cacheFactory(factor = factor))
       }
       println("[" + this.getClass.getSimpleName + "] " + name + ": " + (System.currentTimeMillis - init).toDouble / N + " ms")
     }
@@ -182,21 +189,63 @@ trait AddressCacheTestBase extends FunSuite with Matchers {
     val cache = cacheFactory()
     cache.add("A")
     cache.peek shouldBe "A"
-    Thread.sleep(timeOut * 2)
+    Thread.sleep(timeoutProp * 2 * 1000)
     cache.peek shouldBe null
   }
+
+  def performance(name: String)(f: AddressCache[String] => String => Any) = test("performance of parallel " + name)  {
+    import scala.concurrent.ExecutionContext.Implicits.global
+
+
+    def fut: Future[Long] = Future { (0 to 3).map { _ => //warm-up
+      val cache: AddressCache[String] = cacheFactory(factor = 100)
+      (0 to 10000) map (_.toString) foreach cache.add
+
+      (0 to 100).par map (_.toString) map { a =>
+        val t1 = systime
+        (0 to 1000) map (_.toString) foreach {b => f(cache)(a + "-" + b)}
+        val t2 = systime
+        t2 - t1
+      } sum
+    }.tail.sum}
+
+    val time = Try(Await.result(fut, performanceTimeout * 3).toDouble / 100).getOrElse("over9000")
+
+    println("[" + this.getClass.getSimpleName + "] " + "performance-" + name + ": " + time + " ms")
+  }
+
+  performance("put")(_.add)
+
+  performance("peek")(x => _ => x.peek)
+
+  performance("remove")(_.remove)
 
 }
 
 class AkkaBasedCacheTest extends AddressCacheTestBase {
-  implicit val as = ActorSystem()
-  def cacheFactory(time: Long, unit: TimeUnit) = new AkkaBasedCache[String](time, unit)
+  val conf = ConfigFactory.defaultReference()
+    .withValue("akka.log-dead-letters", ConfigValueFactory.fromAnyRef("off"))
+    .withValue("akka.log-dead-letters-during-shutdown", ConfigValueFactory.fromAnyRef("off"))
+
+  implicit val as = ActorSystem("MySys", conf)
+
+  def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new AkkaBasedCache[String](time, unit, factor)
+
+  override def afterAll {
+    as.terminate()
+  }
+
 }
 
 class LinearAccessAndConstantPutTest extends AddressCacheTestBase {
-  def cacheFactory(time: Long, unit: TimeUnit) = new LinearAccessAndConstantPut[String](time, unit)
+  def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new LinearAccessAndConstantPut[String](time, unit)
 }
 
 class ConstantOperationsTest extends AddressCacheTestBase {
-  def cacheFactory(time: Long, unit: TimeUnit) = new ConstantOperations[String](time, unit)
+  def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new ConstantOperations[String](time, unit)
 }
+
+class TrivialCacheTest extends AddressCacheTestBase {
+  def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new TrivialCache[String](time, unit)
+}
+

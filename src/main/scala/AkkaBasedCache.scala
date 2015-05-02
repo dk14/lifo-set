@@ -16,7 +16,7 @@ import akka.pattern._
 class AkkaBasedCache[InetAddress: ClassTag](maxAge: Long, timeUnit: TimeUnit, factor: Int = 1)(implicit sys: ActorRefFactory)
   extends AddressCache[InetAddress](maxAge, timeUnit) with TakeFromPeek[InetAddress] with AskSupport {
 
-  private implicit val timeout = Duration(factor * maxAge, timeUnit)
+  private implicit val timeout = Duration(maxAge, timeUnit) * factor
   private implicit val akkaTimeout = akka.util.Timeout(timeout)
 
   assert (timeout.toSeconds <= 21474835)
@@ -25,7 +25,7 @@ class AkkaBasedCache[InetAddress: ClassTag](maxAge: Long, timeUnit: TimeUnit, fa
   private val model = new Model[InetAddress]
   import model._
 
-  private val actor = sys.actorOf(Props(classOf[Underlying[InetAddress]], timeout, model))
+  private val actor = sys.actorOf(Props(classOf[Underlying[InetAddress]], timeout / factor, model))
 
   override def add(addr: InetAddress): Boolean = {
     assert(addr != null)

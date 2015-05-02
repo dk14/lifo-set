@@ -1,4 +1,4 @@
-import akka.actor.{Props, ActorSystem, Actor}
+import akka.actor.{ActorRefFactory, Props, Actor}
 import akka.pattern._
 import java.util.concurrent.TimeUnit
 import scala.collection._
@@ -13,7 +13,7 @@ import scala.reflect.ClassTag
  * P.S. Remove operation is O(N) here, but it's also possible to make it O(1) by removing the element from set only
  * and ignoring all heads, that do not exists in the set during peek/take.
  */
-class AkkaBasedCache[InetAddress: ClassTag](maxAge: Long, timeUnit: TimeUnit)(implicit sys: ActorSystem)
+class AkkaBasedCache[InetAddress: ClassTag](maxAge: Long, timeUnit: TimeUnit)(implicit sys: ActorRefFactory)
   extends AddressCache[InetAddress](maxAge, timeUnit) with TakeFromPeek[InetAddress]{
 
   private implicit val timeout = Duration(maxAge, timeUnit)

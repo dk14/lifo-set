@@ -1,29 +1,39 @@
 import akka.actor.ActorSystem
 import com.typesafe.config.{ConfigValueFactory, ConfigFactory}
-import java.util.concurrent.{TimeoutException, Executors, ScheduledExecutorService, TimeUnit}
+import java.util.concurrent._
 import org.scalatest.{BeforeAndAfterAll, Matchers, FunSuite}
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Promise, Await, Future}
 import scala.util.Try
-import sun.security.krb5.Config
 
-trait AddressCacheTestBase extends FunSuite with Matchers with BeforeAndAfterAll {
+trait AddressCacheTestBase[A <: AddressCache[String]] extends FunSuite with Matchers with BeforeAndAfterAll {
+
+  type InetAddr = String
+  type Cache = A
 
   val timeoutProp = Option(System.getProperty("timeout")).map(_.toInt).getOrElse(1)
-  val performanceTimeoutProp = Option(System.getProperty("perfTimeout")).map(_.toInt).getOrElse(10)
+  val performanceTimeoutProp = Option(System.getProperty("perfTimeout")).map(_.toInt).getOrElse(10) //timeout for performance tests
 
   val duration = Duration(timeoutProp, TimeUnit.SECONDS)
   val performanceTimeout = Duration(performanceTimeoutProp, TimeUnit.SECONDS) //used for performance tests
 
-  def cacheFactory(time: Long = duration.length, unit: TimeUnit = duration.unit, factor: Int = 1): AddressCache[String]
+  def cacheFactory(time: Long = duration.length, unit: TimeUnit = duration.unit, factor: Int = 1): A
 
   implicit lazy val es: ScheduledExecutorService = Executors.newScheduledThreadPool(1)
 
-  def N = 100
+  def N = 100 //count of repetitions
 
   def systime = System.currentTimeMillis
 
-  def test[T](name: String, fullName: String, N: Int = N, factor: Int = 1)(code: AddressCache[String] => T) {
+  /**
+   * Runs test several times and prints average time
+   * @param name short name of the test
+   * @param fullName full name
+   * @param N number of repetitions
+   * @param factor ho much maxAges's in one timeout (for Akka)
+   * @param code test body
+   */
+  def test[T](name: String, fullName: String, N: Int = N, factor: Int = 1)(code: AddressCache[InetAddr] => T) {
     test(fullName) {
       val init = systime
       (0 to N) foreach { _ =>
@@ -33,12 +43,20 @@ trait AddressCacheTestBase extends FunSuite with Matchers with BeforeAndAfterAll
     }
   }
 
+  def ignore[T](name: String, fullName: String, N: Int = N, factor: Int = 1)(code: AddressCache[InetAddr] => T){
+    ignore(fullName) {}
+  }
+
   def nonBlockingTake(cache: AddressCache[String]) = {
     val p = cache.peek
     Option(p).map(cache.remove)
     p
   }
 
+  def after(c: Cache) = {}
+}
+
+trait CommonTests[A <: AddressCache[String]] extends AddressCacheTestBase[A] with ExpirationTests[A] {
 
   test("single", "single-thread") { cache =>
 
@@ -139,6 +157,14 @@ trait AddressCacheTestBase extends FunSuite with Matchers with BeforeAndAfterAll
     results filter("Z" !=) should be (List("A", "C"))
   }
 
+  test("one-true", "true is returned only once") { cache =>
+    val adds =  (1 to 100).par.map(_ => cache.add("A"))
+    val removes = (1 to 100).par.map(_ => cache.remove("A"))
+    adds count identity shouldBe 1
+    removes count identity shouldBe 1
+
+  }
+
   test("multi-take", "multi-thread take") { cache =>
 
     val options = List("A", "B", "C")
@@ -155,13 +181,13 @@ trait AddressCacheTestBase extends FunSuite with Matchers with BeforeAndAfterAll
 
     val allTaken = processed ++ reminder
 
-    (options.toSet -- allTaken.toSet) shouldBe empty //check that all elements had been in cache
+    (options.toSet -- allTaken.toSet) shouldBe empty //check that every element had been in cache
     allTaken.toSet.size shouldBe options.size
   }
 
   test("noloose", "do not loose any elements") { cache =>
 
-    (1 to 100).par map (_.toString) map cache.add foreach identity
+    (1 to 100).par map (_.toString) map cache.add foreach identity //foreach here because par-collection's macro don't really execute code if you don't use it
     (1 to 50).par map (_.toString) map cache.remove foreach identity
 
     val reminder = Stream continually nonBlockingTake(cache) takeWhile (null ne)
@@ -185,28 +211,47 @@ trait AddressCacheTestBase extends FunSuite with Matchers with BeforeAndAfterAll
     Try(cacheFactory(-5, TimeUnit.SECONDS)).toOption shouldBe empty
   }
 
-  test("expiration time") {
+}
+
+trait ExpirationTests [A <: AddressCache[String]] extends AddressCacheTestBase[A] {
+
+  test("expiration time") { (0 to 3) foreach { _ =>
     val cache = cacheFactory()
-    cache.add("A")
+    cache add "A"
     cache.peek shouldBe "A"
-    Thread.sleep(timeoutProp * 2 * 1000)
+    Thread.sleep(timeoutProp  * 750) //<-- that's why it's in separate trait
+    cache.peek shouldBe "A"
+    cache remove "A"
+    cache add "A" //reschedule; it's not much precise check
+    Thread.sleep(timeoutProp * 750) //<-- that's why it's in separate trait
+    cache.peek shouldBe "A"
+    Thread.sleep(timeoutProp * 2 * 1000) //<-- that's why it's in separate trait
     cache.peek shouldBe null
-  }
+    after(cache)
+  }}
+}
+
+
+trait PerformanceTests[A <: AddressCache[String]] extends AddressCacheTestBase[A] {
 
   def performance(name: String)(f: AddressCache[String] => String => Any) = test("performance of parallel " + name)  {
     import scala.concurrent.ExecutionContext.Implicits.global
 
-
     def fut: Future[Long] = Future { (0 to 3).map { _ => //warm-up
-      val cache: AddressCache[String] = cacheFactory(factor = 100)
+      val cache: A = cacheFactory(factor = 100)
       (0 to 10000) map (_.toString) foreach cache.add
 
-      (0 to 100).par map (_.toString) map { a =>
-        val t1 = systime
-        (0 to 1000) map (_.toString) foreach {b => f(cache)(a + "-" + b)}
-        val t2 = systime
-        t2 - t1
-      } sum
+      val r = try {
+        (0 to 100).par map (_.toString) map { a =>
+          val t1 = systime
+          (0 to 1000) map (_.toString) foreach { b => f(cache)(a + "-" + b)}
+          val t2 = systime
+          t2 - t1
+        } sum
+      } finally {
+        after(cache)
+      }
+      r
     }.tail.sum}
 
     val time = Try(Await.result(fut, performanceTimeout * 3).toDouble / 100).getOrElse("over9000")
@@ -222,14 +267,90 @@ trait AddressCacheTestBase extends FunSuite with Matchers with BeforeAndAfterAll
 
 }
 
-class AkkaBasedCacheTest extends AddressCacheTestBase {
+trait AllTests extends CommonTests[AddressCache[String]] with PerformanceTests[AddressCache[String]]
+
+trait AllTestsA[A[T] <: AddressCache[T]] extends CommonTests[A[String]] with PerformanceTests[A[String]] //high-order type A[T] allows to not specify `[String]`
+
+
+
+//------------------CacheScheduleFastSuspendable------------------------------------------------------------------------
+
+trait AsyncAdaptor[InetAddress] extends AddressCacheScheduleFastSuspendable[InetAddress] {
+  this: AddressCacheWithScheduledExecutor[InetAddress] =>
+
+  var delta: Long = 0
+  override def systime = super.systime + delta //time travels
+  def forward() = {delta += 10; tick()} //time travels
+
+  lazy val suspends = List.fill(5)(Promise[String])
+  lazy val resumes = List.fill(5)(Promise[String])
+
+  protected override def suspend(): Unit = {
+    suspends.find(x => Try(x.success("OK")).isSuccess) //notify tests
+    super.suspend()
+  }
+
+  protected  override def resume(): Unit = {
+    resumes.find(x => Try(x.success("OK")).isSuccess) //notify tests
+    super.resume()
+  }
+
+  def isEmpty = noActivity
+
+}
+
+trait TypeFactory{ type GetSuspendable[T] = AddressCacheWithScheduledExecutor[T] with AsyncAdaptor[T]} //alias
+
+trait CacheWithSuspendableSchedulerTests extends AllTestsA[TypeFactory#GetSuspendable] {
+  import scala.concurrent.ExecutionContext.Implicits.global
+
+  override def after(c: Cache) = c.close()
+
+  test("suspend cache") { (0 to 100) foreach { _ =>
+    val cache = cacheFactory(1, TimeUnit.MILLISECONDS)
+    import cache._
+
+    forward()
+
+    val scenario = for { //monadic processing
+      _ <- suspends(0).future
+      _ = add("A")
+      _ = forward()
+      _ <- resumes(0).future
+      _ = forward() // "A" removed automatically
+      _ = if (peek != null) println(peek + delta)
+      _ <- suspends(1).future
+      _ = close()
+    } yield ()
+
+    def okerror(b: Promise[String]) = if(b.isCompleted) "[PASSED]" else "[NOT_PASSED]"
+
+    try {
+      Await.result(scenario, duration)
+    } catch {
+      case t: TimeoutException =>
+        fail(s"flow incomplete: suspend${okerror(suspends(0))} -> resume${okerror(resumes(0))} -> suspend${okerror(suspends(1))}")
+      case t: Throwable => throw t
+    }
+
+    peek shouldBe null
+    isCancelled shouldBe true
+    isEmpty shouldBe true
+
+  }}
+
+}
+
+//--------------------------Implementations-----------------------------------------------------------------------------
+
+class AkkaBasedCacheTest extends AllTests {
   val conf = ConfigFactory.defaultReference()
     .withValue("akka.log-dead-letters", ConfigValueFactory.fromAnyRef("off"))
     .withValue("akka.log-dead-letters-during-shutdown", ConfigValueFactory.fromAnyRef("off"))
 
   implicit val as = ActorSystem("MySys", conf)
 
-  def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new AkkaBasedCache[String](time, unit, factor)
+  def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new AkkaBasedCache[InetAddr](time, unit, factor)
 
   override def afterAll {
     as.terminate()
@@ -237,20 +358,18 @@ class AkkaBasedCacheTest extends AddressCacheTestBase {
 
 }
 
-class LinearAccessAndConstantPutTest extends AddressCacheTestBase {
-  def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new LinearAccessAndConstantPut[String](time, unit)
+class LinearAccessAndConstantPutTest extends AllTests {
+  def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new LinearAccessAndConstantPut[InetAddr](time, unit)
 }
 
-class ConstantOperationsTest extends AddressCacheTestBase {
-  def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new ConstantOperations[String](time, unit)
+class ConstantOperationsTest extends AllTests {
+  def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new ConstantOperations[InetAddr](time, unit)
 }
 
-class ConstantOperationsFastScheduleTest extends AddressCacheTestBase {
-  def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new ConstantOperations[String](time, unit) with AddressCacheScheduleFast[String]
-
+class ConstantOperationsFastScheduleTest extends CacheWithSuspendableSchedulerTests {
+  def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new ConstantOperations[InetAddr](time, unit) with AsyncAdaptor[InetAddr]
 }
 
-class TrivialCacheTest extends AddressCacheTestBase {
-  def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new TrivialCache[String](time, unit)
+class TrivialCacheTest extends AllTests {
+  def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new TrivialCache[InetAddr](time, unit)
 }
-

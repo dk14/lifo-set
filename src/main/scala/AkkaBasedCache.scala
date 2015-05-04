@@ -1,4 +1,4 @@
-import akka.actor.{ActorRefFactory, Props, Actor}
+import akka.actor.{Cancellable, ActorRefFactory, Props, Actor}
 import java.util.concurrent.TimeUnit
 import scala.collection._
 import scala.concurrent.Await
@@ -64,22 +64,24 @@ private class Underlying[InetAddress](timeout: FiniteDuration, model: Model[Inet
    * `LinkedList` + `Set` were chosen in preference to `LinkedHashSet`, as `LinkedList` is immutable and has constant access to last added element
    * @param set is used to check uniqueness
    * @param list is used to preserve order
+   * @param sc cancels for schedules
    */
 
-  case class State(set: Set[InetAddress] = Set.empty[InetAddress], list: List[InetAddress] = Nil)
+  case class State(set: Set[InetAddress] = Set.empty[InetAddress], list: List[InetAddress] = Nil, sc: Map[InetAddress, Cancellable] = Map.empty[InetAddress, Cancellable])
 
   def receive = process(State()) //initial state
 
   def process(s: State): Receive = {
     case Add(a) if !s.set.contains(a) =>
-      system.scheduler.scheduleOnce(timeout, self, Remove(a)) //it's not much precise - http://stackoverflow.com/questions/25845950/can-i-schedule-a-task-to-run-less-than-every-10-ms
-      val newState = State(s.set + a, a :: s.list)
+      val cancel = system.scheduler.scheduleOnce(timeout, self, Remove(a)) //it's not much precise - http://stackoverflow.com/questions/25845950/can-i-schedule-a-task-to-run-less-than-every-10-ms
+      val newState = State(s.set + a, a :: s.list, s.sc + (a -> cancel))
       become(process(newState)) //Erlang-style state transition
       sender ! true
     case Add(a) => sender ! false
     case Peek => sender ! s.list.headOption
     case Remove(a) if s.set.contains(a) =>
-      val newState = State(s.set - a, s.list.filter(a !=))
+      s.sc.get(a).map(_.cancel())
+      val newState = State(s.set - a, s.list.filter(a !=), s.sc - a)
       become(process(newState))
       sender ! true
     case Remove(a) => sender ! false

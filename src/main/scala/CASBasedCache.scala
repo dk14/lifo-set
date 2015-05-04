@@ -6,13 +6,13 @@ import scala.util.Try
 
 /**
  * This should be the fastest one, especially for big stacks
- * It uses two collections TrieMap and ConcurrentLinkedDeque, both are CompareAndSwap-based, so no locks here
+ * It uses two collections: TrieMap and ConcurrentLinkedDeque, both are CompareAndSwap-based, so no locks here
  * It's thread-safe, sequentially-consistent
  *
  * @note the collection is consistent over `==`, but not over reference equality `eq`
  */
 class ConstantOperations[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit val es: ScheduledExecutorService)
-  extends AddressCache[InetAddress](maxAge, timeUnit) with AddressCacheSchedule[InetAddress] with TakeFromPeek[InetAddress] {
+  extends AddressCacheWithScheduledExecutor[InetAddress](maxAge, timeUnit) with AddressCacheSchedule[InetAddress] with TakeFromPeek[InetAddress] {
 
   private val stack = new ConcurrentLinkedDeque[InetAddress]
 
@@ -39,7 +39,7 @@ class ConstantOperations[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit
 
   override def remove(addr: InetAddress): Boolean = {
     assert (addr != null)
-    //propagate(addr)
+    removeScheduler(addr)
     set.remove(addr).map(stack.remove).nonEmpty
   } //O(N); can be easily changed to O(1) by removing `.map(stack.remove)`; however, it may affect memory consumption
 
@@ -52,7 +52,7 @@ class ConstantOperations[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit
  * @note access is slow for big collections
  */
 class LinearAccessAndConstantPut[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit val es: ScheduledExecutorService)
-  extends AddressCache[InetAddress](maxAge, timeUnit) with AddressCacheSchedule[InetAddress] with TakeFromPeek[InetAddress] {
+  extends AddressCacheWithScheduledExecutor[InetAddress](maxAge, timeUnit) with AddressCacheSchedule[InetAddress] with TakeFromPeek[InetAddress] {
 
   private case class Info(seqNumber: Long, v: InetAddress, epoch: Long = System.currentTimeMillis() / 100)
 
@@ -85,6 +85,7 @@ class LinearAccessAndConstantPut[InetAddress](maxAge: Long, timeUnit: TimeUnit)(
 
   override def remove(addr: InetAddress): Boolean = { // O(1)
     assert (addr != null)
+    removeScheduler(addr)
     set.remove(addr).nonEmpty
   }
 

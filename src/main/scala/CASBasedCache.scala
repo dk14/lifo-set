@@ -11,8 +11,8 @@ import scala.util.Try
  *
  * @note the collection is consistent over `==`, but not over reference equality `eq`
  */
-class ConstantOperations[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit val ees: ScheduledExecutorService)
-  extends AddressCacheSchedule[InetAddress](maxAge, timeUnit) with TakeFromPeek[InetAddress] {
+class ConstantOperations[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit val es: ScheduledExecutorService)
+  extends AddressCache[InetAddress](maxAge, timeUnit) with AddressCacheSchedule[InetAddress] with TakeFromPeek[InetAddress] {
 
   private val stack = new ConcurrentLinkedDeque[InetAddress]
 
@@ -23,8 +23,9 @@ class ConstantOperations[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit
   override def add(addr: InetAddress): Boolean = { // effective O(1)
     assert (addr != null)
     stack addFirst addr // to preserve order and avoid races
-    scheduleRemove(addr)
+
     if (set.putIfAbsent(addr, addr).isEmpty) {
+      scheduleRemove(addr)
       propagate()
       true
     } else {
@@ -50,8 +51,8 @@ class ConstantOperations[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit
  * The synchronization here is much simpler and still non-blocking
  * @note access is slow for big collections
  */
-class LinearAccessAndConstantPut[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit val ees: ScheduledExecutorService)
-  extends AddressCacheSchedule[InetAddress](maxAge, timeUnit) with TakeFromPeek[InetAddress] {
+class LinearAccessAndConstantPut[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit val es: ScheduledExecutorService)
+  extends AddressCache[InetAddress](maxAge, timeUnit) with AddressCacheSchedule[InetAddress] with TakeFromPeek[InetAddress] {
 
   private case class Info(seqNumber: Long, v: InetAddress, epoch: Long = System.currentTimeMillis() / 100)
 
@@ -61,11 +62,13 @@ class LinearAccessAndConstantPut[InetAddress](maxAge: Long, timeUnit: TimeUnit)(
 
   override def add(addr: InetAddress): Boolean = { // O(1)
     assert (addr != null)
-    scheduleRemove(addr)
+
     val nn = clock.incrementAndGet()
+    if (nn == 0) Thread.sleep(102) //go to the next epoch
     val info = Info(nn, addr)
 
-    if (set.putIfAbsent(addr, info).isEmpty){
+    if (set.putIfAbsent(addr, info).isEmpty) {
+      scheduleRemove(addr)
       propagate()
       true
     } else false

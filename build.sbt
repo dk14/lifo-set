@@ -8,7 +8,7 @@ scalaVersion := "2.11.5"
 
 resolvers += "Akka Snapshot Repository" at "http://repo.akka.io/snapshots/"
 
-parallelExecution in Test := false
+parallelExecution in Test := false //just to make logs nicer
 
 libraryDependencies +="com.typesafe.akka" %% "akka-actor" % "2.4-SNAPSHOT"
 

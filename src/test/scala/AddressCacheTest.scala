@@ -65,7 +65,7 @@ trait AddressCacheTestBase extends FunSuite with Matchers with BeforeAndAfterAll
     val t1 = Future(List(cache.take(), cache.take(), cache.take()))
     val t2 = Future (List(cache.take(), cache.take()))
 
-    Thread.sleep(10)
+    Thread.sleep(10) // <--- it also works without this line
 
     Future {
       cache.add("A")
@@ -104,7 +104,7 @@ trait AddressCacheTestBase extends FunSuite with Matchers with BeforeAndAfterAll
     a [TimeoutException] should be thrownBy Await.result(f, duration)
 
     blockedThread.future foreach(_.interrupt()) //https://gist.github.com/viktorklang/5409467
-    Await.result(interruptedException future, duration) shouldBe an [InterruptedException]
+    Await.result(interruptedException future, duration * 2) shouldBe an [InterruptedException]
   }
 
 
@@ -243,6 +243,11 @@ class LinearAccessAndConstantPutTest extends AddressCacheTestBase {
 
 class ConstantOperationsTest extends AddressCacheTestBase {
   def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new ConstantOperations[String](time, unit)
+}
+
+class ConstantOperationsFastScheduleTest extends AddressCacheTestBase {
+  def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new ConstantOperations[String](time, unit) with AddressCacheScheduleFast[String]
+
 }
 
 class TrivialCacheTest extends AddressCacheTestBase {

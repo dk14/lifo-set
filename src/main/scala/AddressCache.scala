@@ -1,6 +1,8 @@
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{LinkedBlockingQueue, ScheduledExecutorService, TimeUnit}
 import scala.annotation.tailrec
+import scala.collection.concurrent.TrieMap
+import scala.concurrent.duration.Duration
 
 
 abstract class AddressCache[InetAddress](val maxAge: Long, val timeUnit: TimeUnit) {
@@ -20,14 +22,45 @@ abstract class AddressCache[InetAddress](val maxAge: Long, val timeUnit: TimeUni
 
 }
 
-abstract class AddressCacheSchedule[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit val es: ScheduledExecutorService)
-  extends AddressCache[InetAddress](maxAge, timeUnit) {
+trait AddressCacheSchedule[InetAddress] extends  {
+  self: AddressCache[InetAddress] =>
 
-  protected def scheduleRemove(addr: InetAddress) = es.schedule(new Runnable {
+  implicit def es: ScheduledExecutorService
+
+  protected def scheduleRemove(addr: InetAddress): Unit = es.schedule(new Runnable {
     override def run(): Unit = remove(addr)
   }, maxAge, timeUnit)
 
 }
+
+/**
+ * Fast schedule but more CPU
+ * @note CPU consumption and time approximation depends on `timeUnit`
+ */
+trait AddressCacheScheduleFast[InetAddress]  extends AddressCacheSchedule[InetAddress] {
+  self: AddressCache[InetAddress] =>
+  val timestamps = TrieMap[InetAddress, Long]()
+
+  val scheduled = es.scheduleAtFixedRate(new Runnable {
+    override def run(): Unit = {
+      timestamps retain { case (addr, timestamp) =>
+        val delta = System.currentTimeMillis() - timestamp
+        val p = delta < timeUnit.toMillis(maxAge)
+        if (!p) remove(addr)
+        p
+      }
+    }
+  }, 0, Math.max(timeUnit.toMillis(1) / 4, 1), TimeUnit.MILLISECONDS)
+
+  override protected def scheduleRemove(addr: InetAddress): Unit = {
+    assert(!scheduled.isCancelled, "cache closed!")
+    timestamps.putIfAbsent(addr, System.currentTimeMillis())
+  }
+
+  def close() = scheduled.cancel(true)
+
+}
+
 
 trait TakeFromPeek[InetAddress] {
   this: AddressCache[InetAddress] =>

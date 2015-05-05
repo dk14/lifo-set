@@ -45,6 +45,8 @@ trait T99 {
 
 }
 
+// $COVERAGE-OFF$
+
 object T9 extends T99 with App {
   val filename = args.head
   val query = args.tail.head
@@ -52,3 +54,5 @@ object T9 extends T99 with App {
   println(search(file, query))
 
 }
+
+// $COVERAGE-ON$

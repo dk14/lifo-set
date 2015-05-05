@@ -362,6 +362,10 @@ class LinearAccessAndConstantPutTest extends AllTests {
   def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new LinearAccessAndConstantPut[InetAddr](time, unit)
 }
 
+class LinearAccessAndConstantPutGuavaTest extends AllTests {
+  def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new LinearAccessAndConstantPutGuava[InetAddr](time, unit)
+}
+
 class ConstantOperationsTest extends AllTests {
   def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new ConstantOperations[InetAddr](time, unit)
 }
@@ -372,4 +376,8 @@ class ConstantOperationsFastScheduleTest extends CacheWithSuspendableSchedulerTe
 
 class TrivialCacheTest extends AllTests {
   def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new TrivialCache[InetAddr](time, unit)
+}
+
+class TrivialCacheFastTest extends AllTests {
+  def cacheFactory(time: Long, unit: TimeUnit, factor: Int) = new TrivialCacheFast[InetAddr](time, unit)
 }

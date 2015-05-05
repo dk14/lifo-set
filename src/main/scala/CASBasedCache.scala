@@ -1,6 +1,7 @@
+import com.google.common.cache.CacheBuilder
 import java.util.concurrent._
 import java.util.concurrent.atomic._
-import scala.collection.concurrent.TrieMap
+import scala.collection.concurrent._
 import scala.collection.JavaConverters._
 import scala.util.Try
 
@@ -51,12 +52,12 @@ class ConstantOperations[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit
  * The synchronization here is much simpler and still non-blocking
  * @note access is slow for big collections
  */
-class LinearAccessAndConstantPut[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit val es: ScheduledExecutorService)
-  extends AddressCacheWithScheduledExecutor[InetAddress](maxAge, timeUnit) with AddressCacheSchedule[InetAddress] with TakeFromPeek[InetAddress] {
+abstract class LinearAccessAndConstantPutLike[InetAddress](maxAge: Long, timeUnit: TimeUnit)
+  extends AddressCacheWithScheduledExecutor[InetAddress](maxAge, timeUnit) with AddressCacheScheduleBase[InetAddress] with TakeFromPeek[InetAddress] {
 
-  private case class Info(seqNumber: Long, v: InetAddress, epoch: Long = System.currentTimeMillis() / 100)
+  protected case class Info(seqNumber: Long, v: InetAddress, epoch: Long = System.currentTimeMillis() / 100)
 
-  private val set = new TrieMap[InetAddress, Info]()
+  protected val set: scala.collection.concurrent.Map[InetAddress, Info]
 
   private val clock = new AtomicLong(1) // this is the primitive vector clock: http://en.wikipedia.org/wiki/Vector_clock
 
@@ -91,3 +92,26 @@ class LinearAccessAndConstantPut[InetAddress](maxAge: Long, timeUnit: TimeUnit)(
 
 }
 
+/**
+ * TrieMap + AddressCacheSchedule based implementation
+ */
+class LinearAccessAndConstantPut[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit val es: ScheduledExecutorService)
+  extends LinearAccessAndConstantPutLike[InetAddress](maxAge, timeUnit) with AddressCacheSchedule[InetAddress] {
+
+  protected val set = new TrieMap[InetAddress, Info]()
+}
+
+/**
+ * Guava-based implementation
+ */
+class LinearAccessAndConstantPutGuava[InetAddress](maxAge: Long, timeUnit: TimeUnit)
+  extends LinearAccessAndConstantPutLike[InetAddress](maxAge, timeUnit) {
+
+  protected val set = CacheBuilder.newBuilder().expireAfterWrite(maxAge, timeUnit).build().asMap()
+    .asInstanceOf[ConcurrentMap[InetAddress, Info]].asScala
+
+  protected def scheduleRemove(addr: InetAddress) = {}
+
+  protected def removeScheduler(addr: InetAddress) = {}
+
+}

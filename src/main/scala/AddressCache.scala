@@ -32,21 +32,30 @@ abstract class AddressCache[InetAddress](val maxAge: Long, val timeUnit: TimeUni
  */
 abstract class AddressCacheWithScheduledExecutor[InetAddress](maxAge: Long, timeUnit: TimeUnit) extends AddressCache[InetAddress](maxAge, timeUnit)
 
+
+trait AddressCacheScheduleBase[InetAddress] {
+  protected def scheduleRemove(addr: InetAddress): Unit
+  protected def removeScheduler(addr: InetAddress): Unit
+}
+
 /**
  * Simple scheduling support
  */
-trait AddressCacheSchedule[InetAddress] extends  {
+trait AddressCacheSchedule[InetAddress] extends AddressCacheScheduleBase[InetAddress] {
   self: AddressCacheWithScheduledExecutor[InetAddress] =>
 
   implicit def es: ScheduledExecutorService
 
   private val futures = TrieMap[InetAddress, ScheduledFuture[_]]()
 
-  protected def scheduleRemove(addr: InetAddress): Unit = futures.putIfAbsent(addr,es.schedule(new Runnable { //it will cause a small lock to put task in to the queue
+  protected def scheduleRemove(addr: InetAddress): Unit = {
+    val cancellable = es.schedule(new Runnable { //it will cause a small lock to put task in to the queue
     override def run(): Unit = remove(addr)
-  }, maxAge, timeUnit))
+    }, maxAge, timeUnit)
+    if (futures.putIfAbsent(addr, cancellable).nonEmpty) cancellable.cancel(true)
+  }
 
-  def removeScheduler(addr: InetAddress): Unit = futures.remove(addr).map(_.cancel(true))
+  protected def removeScheduler(addr: InetAddress): Unit = futures.remove(addr).map(_.cancel(true))
 
 }
 

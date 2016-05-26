@@ -30,7 +30,7 @@ class ConstantOperations[InetAddress](maxAge: Long, timeUnit: TimeUnit)(implicit
       propagate()
       true
     } else {
-      stack remove addr // it may not be previously added address, the point is to do remove N times, where N - is count of loosed puts
+      stack remove addr // it may not be previously added address, the point is to do remove N times, where N - is count of lost puts
       false
     }
   }
